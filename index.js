@@ -1,3 +1,6 @@
+/* eslint-disable no-restricted-globals */
+/* eslint-disable no-use-before-define */
+/* eslint-disable no-param-reassign */
 const path = require('path');
 
 const express = require('express');
@@ -5,7 +8,6 @@ const javascriptStringify = require('javascript-stringify').stringify;
 const qs = require('qs');
 const rateLimit = require('express-rate-limit');
 const text2png = require('text2png');
-
 const packageJson = require('./package.json');
 const telemetry = require('./telemetry');
 const { getPdfBufferFromPng, getPdfBufferWithText } = require('./lib/pdf');
@@ -19,14 +21,13 @@ const app = express();
 
 const isDev = app.get('env') === 'development' || app.get('env') === 'test';
 
-app.set('query parser', str =>
-  qs.parse(str, {
-    decode(s) {
-      // Default express implementation replaces '+' with space. We don't want
-      // that. See https://github.com/expressjs/express/issues/3453
-      return decodeURIComponent(s);
-    },
-  }),
+app.set('query parser', str => qs.parse(str, {
+  decode(s) {
+    // Default express implementation replaces '+' with space. We don't want
+    // that. See https://github.com/expressjs/express/issues/3453
+    return decodeURIComponent(s);
+  },
+}),
 );
 
 app.use(
@@ -46,12 +47,10 @@ if (process.env.RATE_LIMIT_PER_MIN) {
     max: limitMax,
     message:
       'Please slow down your requests! This is a shared public endpoint. Email support@quickchart.io or go to https://quickchart.io/pricing/ for rate limit exceptions or to purchase a commercial license.',
-    onLimitReached: req => {
+    onLimitReached: (req) => {
       logger.info('User hit rate limit!', req.ip);
     },
-    keyGenerator: req => {
-      return req.headers['x-forwarded-for'] || req.ip;
-    },
+    keyGenerator: req => req.headers['x-forwarded-for'] || req.ip,
   });
   app.use('/chart', limiter);
 }
@@ -65,7 +64,7 @@ app.get('/', (req, res) => {
 app.post('/telemetry', (req, res) => {
   const chartCount = parseInt(req.body.chartCount, 10);
   const qrCount = parseInt(req.body.qrCount, 10);
-  const pid = req.body.pid;
+  const { pid } = req.body;
 
   if (chartCount && !isNaN(chartCount)) {
     telemetry.receive(pid, 'chartCount', chartCount);
@@ -120,7 +119,7 @@ async function failPdf(res, msg) {
 
 function renderChartToPng(req, res, opts) {
   opts.failFn = failPng;
-  opts.onRenderHandler = buf => {
+  opts.onRenderHandler = (buf) => {
     res
       .type('image/png')
       .set({
@@ -135,7 +134,7 @@ function renderChartToPng(req, res, opts) {
 
 function renderChartToSvg(req, res, opts) {
   opts.failFn = failSvg;
-  opts.onRenderHandler = buf => {
+  opts.onRenderHandler = (buf) => {
     res
       .type('image/svg+xml')
       .set({
@@ -150,7 +149,7 @@ function renderChartToSvg(req, res, opts) {
 
 async function renderChartToPdf(req, res, opts) {
   opts.failFn = failPdf;
-  opts.onRenderHandler = async buf => {
+  opts.onRenderHandler = async (buf) => {
     const pdfBuf = await getPdfBufferFromPng(buf);
 
     res.writeHead(200, {
@@ -196,7 +195,7 @@ function doChartjsRender(req, res, opts) {
     untrustedInput,
   )
     .then(opts.onRenderHandler)
-    .catch(err => {
+    .catch((err) => {
       logger.warn('Chart error', err);
       opts.failFn(res, err);
     });
@@ -236,14 +235,15 @@ function handleGChart(req, res) {
     }
     handleGraphviz(req, res, req.query.chl, opts);
     return;
-  } else if (req.query.cht === 'qr') {
+  }
+  if (req.query.cht === 'qr') {
     const size = parseInt(req.query.chs.split('x')[0], 10);
     const qrData = req.query.chl;
     const chldVals = (req.query.chld || '').split('|');
     const ecLevel = chldVals[0] || 'L';
     const margin = chldVals[1] || 4;
     const qrOpts = {
-      margin: margin,
+      margin,
       width: size,
       errorCorrectionLevel: ecLevel,
     };
@@ -251,7 +251,7 @@ function handleGChart(req, res) {
     const format = 'png';
     const encoding = 'UTF-8';
     renderQr(format, encoding, qrData, qrOpts)
-      .then(buf => {
+      .then((buf) => {
         res.writeHead(200, {
           'Content-Type': format === 'png' ? 'image/png' : 'image/svg+xml',
           'Content-Length': buf.length,
@@ -261,7 +261,7 @@ function handleGChart(req, res) {
         });
         res.end(buf);
       })
-      .catch(err => {
+      .catch((err) => {
         failPng(res, err);
       });
 
@@ -295,7 +295,7 @@ function handleGChart(req, res) {
     '2.9.4' /* version */,
     undefined /* format */,
     converted.chart,
-  ).then(buf => {
+  ).then((buf) => {
     res.writeHead(200, {
       'Content-Type': 'image/png',
       'Content-Length': buf.length,
@@ -308,62 +308,84 @@ function handleGChart(req, res) {
   telemetry.count('chartCount');
 }
 
-app.get('/chart', (req, res) => {
-  if (req.query.cht) {
-    // This is a Google Image Charts-compatible request.
-    handleGChart(req, res);
-    return;
-  }
+app.get(
+  [
+    '/chart',
+    '/verticalbarchart',
+    '/barchart',
+    '/straightlinechart',
+    '/curvedlinechart',
+    '/piechart',
+    '/doughnutchart',
+  ],
+  (req, res) => {
+    if (req.query.cht) {
+      // This is a Google Image Charts-compatible request.
+      handleGChart(req, res);
+      return;
+    }
 
-  const outputFormat = (req.query.f || req.query.format || 'png').toLowerCase();
-  const opts = {
-    chart: req.query.c || req.query.chart,
-    height: req.query.h || req.query.height,
-    width: req.query.w || req.query.width,
-    backgroundColor: req.query.backgroundColor || req.query.bkg,
-    devicePixelRatio: req.query.devicePixelRatio,
-    version: req.query.v || req.query.version,
-    encoding: req.query.encoding || 'url',
-    format: outputFormat,
-  };
+    const outputFormat = (req.query.f || req.query.format || 'png').toLowerCase();
+    const opts = {
+      chart: req.query.c || req.query.chart,
+      height: req.query.h || req.query.height,
+      width: req.query.w || req.query.width,
+      backgroundColor: req.query.backgroundColor || req.query.bkg,
+      devicePixelRatio: req.query.devicePixelRatio,
+      version: req.query.v || req.query.version,
+      encoding: req.query.encoding || 'url',
+      format: outputFormat,
+    };
 
-  if (outputFormat === 'pdf') {
-    renderChartToPdf(req, res, opts);
-  } else if (outputFormat === 'svg') {
-    renderChartToSvg(req, res, opts);
-  } else if (!outputFormat || outputFormat === 'png') {
-    renderChartToPng(req, res, opts);
-  } else {
-    logger.error(`Request for unsupported format ${outputFormat}`);
-    res.status(500).end(`Unsupported format ${outputFormat}`);
-  }
+    if (outputFormat === 'pdf') {
+      renderChartToPdf(req, res, opts);
+    } else if (outputFormat === 'svg') {
+      renderChartToSvg(req, res, opts);
+    } else if (!outputFormat || outputFormat === 'png') {
+      renderChartToPng(req, res, opts);
+    } else {
+      logger.error(`Request for unsupported format ${outputFormat}`);
+      res.status(500).end(`Unsupported format ${outputFormat}`);
+    }
 
-  telemetry.count('chartCount');
-});
+    telemetry.count('chartCount');
+  },
+);
 
-app.post('/chart', (req, res) => {
-  const outputFormat = (req.body.f || req.body.format || 'png').toLowerCase();
-  const opts = {
-    chart: req.body.c || req.body.chart,
-    height: req.body.h || req.body.height,
-    width: req.body.w || req.body.width,
-    backgroundColor: req.body.backgroundColor || req.body.bkg,
-    devicePixelRatio: req.body.devicePixelRatio,
-    version: req.body.v || req.body.version,
-    encoding: req.body.encoding || 'url',
-    format: outputFormat,
-  };
+app.post(
+  [
+    '/chart',
+    '/verticalbarchart',
+    '/barchart',
+    '/straightlinechart',
+    '/curvedlinechart',
+    '/piechart',
+    '/doughnutchart',
+  ],
+  (req, res) => {
+    const outputFormat = (req.body.f || req.body.format || 'png').toLowerCase();
+    const opts = {
+      chart: req.body.c || req.body.chart,
+      height: req.body.h || req.body.height,
+      width: req.body.w || req.body.width,
+      backgroundColor: req.body.backgroundColor || req.body.bkg,
+      devicePixelRatio: req.body.devicePixelRatio,
+      version: req.body.v || req.body.version,
+      encoding: req.body.encoding || 'url',
+      format: outputFormat,
+    };
 
-  if (outputFormat === 'pdf') {
-    renderChartToPdf(req, res, opts);
-  } else if (outputFormat === 'svg') {
-    renderChartToSvg(req, res, opts);
-  } else {
-    renderChartToPng(req, res, opts);
-  }
+    if (outputFormat === 'pdf') {
+      renderChartToPdf(req, res, opts);
+    } else if (outputFormat === 'svg') {
+      renderChartToSvg(req, res, opts);
+    } else {
+      renderChartToPng(req, res, opts);
+    }
 
-  telemetry.count('chartCount');
-});
+    telemetry.count('chartCount');
+  },
+);
 
 app.get('/qr', (req, res) => {
   const qrText = req.query.text;

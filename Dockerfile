@@ -1,23 +1,35 @@
-FROM node:12-alpine3.15
+# specify the node base image with your desired version node:<version>
+FROM node:alpine
 
+ENV NPM_CONFIG_LOGLEVEL info
 ENV NODE_ENV production
+ENV DISABLE_TELEMETRY true
+
+#RUN mkdir /quickchart
 
 WORKDIR /quickchart
 
 RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
 
 RUN apk add --upgrade apk-tools
+RUN apk add --no-cache libc6-compat
 RUN apk add --no-cache --virtual .build-deps yarn git build-base g++ python3
+#RUN apk add --no-cache --virtual .build-deps yarn git build-base g++ python
 RUN apk add --no-cache --virtual .npm-deps cairo-dev pango-dev libjpeg-turbo-dev librsvg-dev
+#RUN apk add --no-cache --virtual .fonts libmount ttf-dejavu ttf-droid ttf-freefont ttf-liberation ttf-ubuntu-font-family font-noto font-noto-emoji fontconfig
 RUN apk add --no-cache --virtual .fonts libmount ttf-dejavu ttf-droid ttf-freefont ttf-liberation font-noto font-noto-emoji fontconfig
 RUN apk add wqy-zenhei --no-cache --repository http://nl.alpinelinux.org/alpine/edge/testing --allow-untrusted
 RUN apk add libimagequant-dev --no-cache --repository=http://dl-cdn.alpinelinux.org/alpine/edge/main
-RUN apk add vips-dev --no-cache --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community
+RUN apk add tiff --no-cache --repository=http://dl-cdn.alpinelinux.org/alpine/edge/main
+#RUN apk add vips-dev --no-cache --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community
 RUN apk add --no-cache --virtual .runtime-deps graphviz
 
 COPY package*.json .
 COPY yarn.lock .
+
+#--verbose
 RUN yarn install --production
+RUN yarn add chartjs-plugin-colorschemes --production
 
 RUN apk update
 RUN rm -rf /var/cache/apk/* && \
@@ -25,8 +37,8 @@ RUN rm -rf /var/cache/apk/* && \
 RUN apk del .build-deps
 
 COPY *.js ./
-COPY lib/*.js lib/
-COPY LICENSE .
+COPY lib ./lib/
+COPY LICENSE ./
 
 EXPOSE 3400
 
