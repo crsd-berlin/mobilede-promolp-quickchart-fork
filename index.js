@@ -21,13 +21,14 @@ const app = express();
 
 const isDev = app.get('env') === 'development' || app.get('env') === 'test';
 
-app.set('query parser', str => qs.parse(str, {
-  decode(s) {
-    // Default express implementation replaces '+' with space. We don't want
-    // that. See https://github.com/expressjs/express/issues/3453
-    return decodeURIComponent(s);
-  },
-}),
+app.set('query parser', (str) =>
+  qs.parse(str, {
+    decode(s) {
+      // Default express implementation replaces '+' with space. We don't want
+      // that. See https://github.com/expressjs/express/issues/3453
+      return decodeURIComponent(s);
+    },
+  }),
 );
 
 app.use(
@@ -50,7 +51,9 @@ if (process.env.RATE_LIMIT_PER_MIN) {
     onLimitReached: (req) => {
       logger.info('User hit rate limit!', req.ip);
     },
-    keyGenerator: req => req.headers['x-forwarded-for'] || req.ip,
+    keyGenerator: (req) => {
+      return req.headers['x-forwarded-for'] || req.ip;
+    },
   });
   app.use('/chart', limiter);
 }
@@ -76,10 +79,26 @@ app.post('/telemetry', (req, res) => {
   res.send({ success: true });
 });
 
+function utf8ToAscii(str) {
+  const enc = new TextEncoder();
+  const u8s = enc.encode(str);
+
+  return Array.from(u8s)
+    .map((v) => String.fromCharCode(v))
+    .join('');
+}
+
+function sanitizeErrorHeader(msg) {
+  if (typeof msg === 'string') {
+    return utf8ToAscii(msg).replace(/\r?\n|\r/g, '');
+  }
+  return '';
+}
+
 function failPng(res, msg, statusCode = 500) {
   res.writeHead(statusCode, {
     'Content-Type': 'image/png',
-    'X-quickchart-error': msg,
+    'X-quickchart-error': sanitizeErrorHeader(msg),
   });
   res.end(
     text2png(`Chart Error: ${msg}`, {
@@ -92,7 +111,7 @@ function failPng(res, msg, statusCode = 500) {
 function failSvg(res, msg, statusCode = 500) {
   res.writeHead(statusCode, {
     'Content-Type': 'image/svg+xml',
-    'X-quickchart-error': msg,
+    'X-quickchart-error': sanitizeErrorHeader(msg),
   });
   res.end(`
 <svg viewBox="0 0 240 80" xmlns="http://www.w3.org/2000/svg">
@@ -112,7 +131,7 @@ async function failPdf(res, msg) {
   const buf = await getPdfBufferWithText(msg);
   res.writeHead(500, {
     'Content-Type': 'application/pdf',
-    'X-quickchart-error': msg,
+    'X-quickchart-error': sanitizeErrorHeader(msg),
   });
   res.end(buf);
 }
@@ -418,7 +437,7 @@ app.get('/qr', (req, res) => {
   };
 
   renderQr(format, mode, qrText, qrOpts)
-    .then(buf => {
+    .then((buf) => {
       res.writeHead(200, {
         'Content-Type': format === 'png' ? 'image/png' : 'image/svg+xml',
         'Content-Length': buf.length,
@@ -428,7 +447,7 @@ app.get('/qr', (req, res) => {
       });
       res.end(buf);
     })
-    .catch(err => {
+    .catch((err) => {
       failPng(res, err);
     });
 
